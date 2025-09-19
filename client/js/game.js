@@ -1,9 +1,9 @@
 
 define(['infomanager', 'bubble', 'renderer', 'map', 'animation', 'sprite', 'tile',
-        'warrior', 'gameclient', 'audio', 'updater', 'transition', 'pathfinder',
+        'warrior', 'gameclient', 'singleplayer/localgameclient', 'audio', 'updater', 'transition', 'pathfinder',
         'item', 'mob', 'npc', 'player', 'character', 'chest', 'mobs', 'exceptions', 'config', '../../shared/js/gametypes'],
 function(InfoManager, BubbleManager, Renderer, Map, Animation, Sprite, AnimatedTile,
-         Warrior, GameClient, AudioManager, Updater, Transition, Pathfinder,
+         Warrior, GameClient, LocalGameClient, AudioManager, Updater, Transition, Pathfinder,
          Item, Mob, Npc, Player, Character, Chest, Mobs, Exceptions, config) {
     
     var Game = Class.extend({
@@ -13,6 +13,7 @@ function(InfoManager, BubbleManager, Renderer, Map, Animation, Sprite, AnimatedT
             this.ready = false;
             this.started = false;
             this.hasNeverStarted = true;
+            this.singlePlayer = false;
         
             this.renderer = null;
             this.updater = null;
@@ -610,9 +611,17 @@ function(InfoManager, BubbleManager, Renderer, Map, Animation, Sprite, AnimatedT
         },
     
         setServerOptions: function(host, port, username) {
+            this.singlePlayer = false;
             this.host = host;
             this.port = port;
             this.username = username;
+        },
+
+        enableSinglePlayer: function(username) {
+            this.singlePlayer = true;
+            this.username = username;
+            this.host = null;
+            this.port = null;
         },
     
         loadAudio: function() {
@@ -713,40 +722,51 @@ function(InfoManager, BubbleManager, Renderer, Map, Animation, Sprite, AnimatedT
         connect: function(started_callback) {
             var self = this,
                 connecting = false; // always in dispatcher mode in the build version
-    
-            this.client = new GameClient(this.host, this.port);
-            
-            //>>excludeStart("prodHost", pragmas.prodHost);
-            var config = this.app.config.local || this.app.config.dev;
-            if(config) {
-                this.client.connect(config.dispatcher); // false if the client connects directly to a game server
-                connecting = true;
+
+            if(this.singlePlayer) {
+                this.client = new LocalGameClient(this.host, this.port, {
+                    map: this.map,
+                    storage: this.storage
+                });
+            } else {
+                this.client = new GameClient(this.host, this.port);
+
+                //>>excludeStart("prodHost", pragmas.prodHost);
+                var config = this.app.config.local || this.app.config.dev;
+                if(config) {
+                    this.client.connect(config.dispatcher); // false if the client connects directly to a game server
+                    connecting = true;
+                }
+                //>>excludeEnd("prodHost");
+
+                //>>includeStart("prodHost", pragmas.prodHost);
+                if(!connecting) {
+                    this.client.connect(true); // always use the dispatcher in production
+                }
+                //>>includeEnd("prodHost");
+
+                this.client.onDispatched(function(host, port) {
+                    log.debug("Dispatched to game server "+host+ ":"+port);
+
+                    self.client.host = host;
+                    self.client.port = port;
+                    self.client.connect(); // connect to actual game server
+                });
             }
-            //>>excludeEnd("prodHost");
-            
-            //>>includeStart("prodHost", pragmas.prodHost);
-            if(!connecting) {
-                this.client.connect(true); // always use the dispatcher in production
-            }
-            //>>includeEnd("prodHost");
-            
-            this.client.onDispatched(function(host, port) {
-                log.debug("Dispatched to game server "+host+ ":"+port);
-                
-                self.client.host = host;
-                self.client.port = port;
-                self.client.connect(); // connect to actual game server
-            });
             
             this.client.onConnected(function() {
                 log.info("Starting client/server handshake");
-                
+
                 self.player.name = self.username;
                 self.started = true;
-            
+
                 self.sendHello(self.player);
             });
-        
+
+            if(this.singlePlayer) {
+                this.client.connect();
+            }
+
             this.client.onEntityList(function(list) {
                 var entityIds = _.pluck(self.entities, 'id'),
                     knownIds = _.intersection(entityIds, list),

@@ -1,5 +1,5 @@
 
-define(['jquery', 'storage'], function($, Storage) {
+define(['jquery', 'storage', 'singleplayer/settings'], function($, Storage, SingleplayerSettings) {
 
     var App = Class.extend({
         init: function() {
@@ -87,19 +87,28 @@ define(['jquery', 'storage'], function($, Storage) {
             
             if(username && !this.game.started) {
                 var optionsSet = false,
-                    config = this.config;
+                    config = this.config,
+                    singlePlayer = SingleplayerSettings.isEnabled();
+
+                if(singlePlayer) {
+                    log.debug("Starting game in single-player mode.");
+                    this.game.enableSinglePlayer(username);
+                    optionsSet = true;
+                }
 
                 //>>includeStart("devHost", pragmas.devHost);
-                if(config.local) {
-                    log.debug("Starting game with local dev config.");
-                    this.game.setServerOptions(config.local.host, config.local.port, username);
-                } else {
-                    log.debug("Starting game with default dev config.");
-                    this.game.setServerOptions(config.dev.host, config.dev.port, username);
+                if(!optionsSet) {
+                    if(config.local) {
+                        log.debug("Starting game with local dev config.");
+                        this.game.setServerOptions(config.local.host, config.local.port, username);
+                    } else {
+                        log.debug("Starting game with default dev config.");
+                        this.game.setServerOptions(config.dev.host, config.dev.port, username);
+                    }
+                    optionsSet = true;
                 }
-                optionsSet = true;
                 //>>includeEnd("devHost");
-                
+
                 //>>includeStart("prodHost", pragmas.prodHost);
                 if(!optionsSet) {
                     log.debug("Starting game with build config.");
